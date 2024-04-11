@@ -24,12 +24,40 @@ app.get('/api', (req, res) => {   //se realiza solicitud get a la api, en format
     res.status(200).send('Hello World!'); 
 })
 
+//FUNCION MIDDLEWARE
+
+function validateMiddleware(req, res, next) {
+    const authHeader = req.headers['x-authorization'];
+
+    if (!authHeader || authHeader.trim() === '') {
+        console.log('El encabezado de autorización está vacío o no está definido.');
+        return res.status(401).send();
+    }
+
+    let user;
+    try {
+        const jsonObject = JSON.parse(authHeader);
+        user = jsonObject.username;
+    } catch (error) {
+        console.error('Error al analizar el encabezado de autorización JSON:', error.message);
+        return res.status(401).send();
+    }
+
+    const userIndex = users.findIndex((u) => u.username == user);
+    if (userIndex === -1) {
+        console.log("Usuario no encontrado en la lista");
+        return res.status(401).send();
+    }
+
+    console.log("Usuario validado:", user);
+    next();
+}
+
+
 
 //LOGIN
 
-
-
-app.post('/api/login', async (req, res)  => {
+app.post('/api/login', async (req, res)  => { //define la ruta POST, para solicitud de inicio de sesion
     res.contentType('application/json');
 
     const nuevoUsuario = req.body.username;   //obtengo variables
@@ -73,111 +101,112 @@ app.post('/api/login', async (req, res)  => {
 
  // LISTAR ITEMS
 
- app.get("/api/todos", (req, res)  =>  {
-    res.contentType('application/json');  //establece el tipo de contenido de la respuesta como json
-    let lista = []                       //crea un array vacio llamado lista y almacena los elementos de la lista todos
+ app.get("/api/todos", validateMiddleware, (req, res) => {
+    res.contentType('application/json');  
 
-    todos.forEach(element => {          //repitecada elemnto en la lista todos  y agrega las propiedades en la  a la lista
-
-        lista.push({
-            id: element.id,
-            title: element.title,
-            completed: element.completed
-        })
-    });
+    const lista = todos.map(element => ({   //mapea cada elemento en la lista todos  y agrega las propiedades en la  a la lista
+        id: element.id,
+        title: element.title,
+        completed: element.completed
+    }));
 
     res.status(200).send(lista);  //codigo de estado como 200 y envia la lista en formato json
-})
-
+});
 
 // OBTENER ITEMS
 
-app.get("/api/todos/:id", (req, res) => {
-    res.contentType('application/json');     //establece el tipo de contenido de la respuesta como json
+app.get("/api/todos/:id", validateMiddleware, (req, res) => {
+    res.contentType('application/json');  
 
-    const id = req.params.id;               //obtiene valor del parametro id de la URL
+    const id = req.params.id;  // Obtener el ID de los parámetros de la URL
 
-    const Index = todos.findIndex((t) => t.id == id);  // busca el indice del elemnto en la lista todos  y que el id coincida coincida con id de la URL
+    const todo = todos.find((element) => element.id === id);  // Buscar el ítem con el ID especificado en la lista de tareas
 
-    if (Index == -1) {                      //verifica si encontro el elemento en la lista todos
-        res.status(404).send("Item no existe");  //si index es -1 el elemnto no fue encontrado en la lista, el cual envia respuesta con codigo 404 (no existe)
-    } else {
-        const respuesta = {                //si encontro elemento en la lista se crea objeto de respuesta con todas las propiedades
-            id: todo[Index].id,
-            title: todo[Index].title,
-            completed: todo[Index].completed
-        }
-        res.status(200).send(respuesta);   //codigo de estado como 200 y envia objeto como respuesta
+    if (!todo) {  // Si no se encuentra el ítem, devolver un mensaje de error y un código de estado 404
+        return res.status(404).send("Item no encontrado");
     }
-})
 
-
+    res.status(200).send(todo);  // Devolver el ítem encontrado con código de estado 200
+});
+  
 // CREACION DE ITEM
 
-app.post("/api/todos", (req, res) => {
-    res.contentType('application/json');  //establece el tipo de contenido de la respuesta como json
-    
-    try {
-        const title = req.body.title;
+// Ruta para crear un nuevo ítem
+app.post("/api/todos", validateMiddleware, (req, res) => {
+    res.contentType('application/json');  
 
-        const todo = {
-            id: randomUUID().toString(),
-            title: title,
-            completed: false
-        }
+    const { title, completed } = req.body;  // Obtener el título y el estado completado del cuerpo de la solicitud
 
-        todos.push(todo);
-    
-        res.status(201).send(todo);
-    } catch (err) {
-        res.status(400);
-    } 
-})
+    if (!title) {  // Verificar si el título no se proporcionó correctamente
+        return res.status(400).send('El título es obligatorio');
+    }
+
+    // Crear un nuevo ítem con un ID único
+    const newTodo = {
+        id: randomUUID(),
+        title: title,
+        completed: completed || false  // Establecer el estado completado como false si no se proporciona
+    };
+
+    todos.push(newTodo);  // Agregar el nuevo ítem a la lista de tareas
+
+    res.status(201).send(newTodo);  // Devolver el nuevo ítem creado con un código de estado 201 (Creado)
+});
 
 // ACTUALIZACION DE ITEM
 
-app.put("/api/todos/:id", (req, res) => {
-    res.contentType('application/json');  //establece el tipo de contenido de la respuesta como json
+// Ruta para actualizar un ítem
+app.put("/api/todos/:id", validateMiddleware, (req, res) => {
+    res.contentType('application/json');  
 
-    const id = req.params.id;
-    const title = req.body.title;
-    const completed = req.body.completed;
-    
-    try {
+    const id = req.params.id;  // Obtener el ID del ítem a actualizar de los parámetros de la URL
+    const { title, completed } = req.body;  // Obtener el nuevo título y estado completado del cuerpo de la solicitud
 
-        const Index = todos.findIndex((todo) => todo.id == id);
+    // Verificar si el título no está en el formato correcto (por ejemplo, si no es una cadena de texto)
+    if (title !== undefined && typeof title !== 'string') {
+        return res.status(400).send('El título debe ser una cadena de texto');
+    }
 
-        let todoExiste = todos[Index];
+    // Verificar si el estado completado no está en el formato correcto (por ejemplo, si no es un booleano)
+    if (completed !== undefined && typeof completed !== 'boolean') {
+        return res.status(400).send('El estado completado debe ser un booleano');
+    }
 
-        const todo = {
-            id: id,
-            title: title ? title : todoExiste.title,
-            completed: completed ? completed : todoExiste.completed
-        }
-    
-        todos[Index] = todo;
+    const todoIndex = todos.findIndex((element) => element.id === id);  // Buscar el ítem en la lista de tareas
 
-        res.status(200).send(todo);
-    } catch (err) {
-        res.status(400);
-    } 
-})
+    if (todoIndex === -1) {  // Si no se encuentra el ítem, devolver un mensaje de error y un código de estado 404
+        return res.status(404).send("Item no encontrado");
+    }
 
+    // Actualizar el ítem con los nuevos datos
+    todos[todoIndex] = {
+        ...todos[todoIndex],
+        title: title || todos[todoIndex].title,  // Mantener el título original si no se proporciona un nuevo título
+        completed: completed !== undefined ? completed : todos[todoIndex].completed  // Mantener el estado completado original si no se proporciona un nuevo estado
+    };
+
+    res.status(200).send(todos[todoIndex]);  // Devolver el ítem actualizado con un código de estado 200
+});
 
 // BORRAR ITEM
 
-app.delete("/api/todos/:id", (req, res) => {
-    const id = req.params.id;
-        const Index = todos.findIndex((todo) => todo.id == id);
-    if (Index !== -1)
-     {
-        todos.splice(Index, 1);
-        res.status(204).send();
+app.delete("/api/todos/:id", validateMiddleware, (req, res) => {
+    res.contentType('application/json');  
 
-    } else  {
-        res.status(404).send("Item no existe");
-    } 
-})
+    const id = req.params.id;  // Obtener el ID del ítem a eliminar de los parámetros de la URL
+
+    const todoIndex = todos.findIndex((element) => element.id === id);  // Buscar el ítem en la lista de tareas
+
+    if (todoIndex === -1) {  // Si no se encuentra el ítem, devolver un mensaje de error y un código de estado 404
+        return res.status(404).send("Item no encontrado");
+    }
+
+    // Eliminar el ítem de la lista de tareas
+    todos.splice(todoIndex, 1);
+
+    res.status(204).send();  // Devolver una respuesta vacía con un código de estado 204 (Sin contenido)
+});
+
 
 
 // REQUISITOS
